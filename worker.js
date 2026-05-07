@@ -1,5 +1,5 @@
 /**
- * 永久直链托管 v5 - 最终稳定版
+ * 永久直链托管 v6 - 密码保护 + 上传历史
  */
 
 export default {
@@ -7,6 +7,9 @@ export default {
     var u = new URL(request.url);
     var p = u.pathname;
     if (request.method === 'OPTIONS') return new Response(null, { headers: cr() });
+    if (p === '/verify' && request.method === 'POST') return verify(request, env);
+    if (p === '/me' && request.method === 'GET') return me(request, env);
+    if (p === '/history' && request.method === 'GET') return history(env);
     if (p === '/status') return st(env, u);
     if (p === '/upload' && request.method === 'POST') return up(request, env, u);
     if (p.startsWith('/f/') && p.length > 3) return fl(p.slice(3), request, env);
@@ -18,7 +21,6 @@ export default {
 };
 
 function pg(origin) {
-  // 用单引号构建HTML，JS内部全部用双引号
   var s = '';
   s += '<!doctype html><html lang="zh-CN"><head>';
   s += '<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
@@ -29,11 +31,10 @@ function pg(origin) {
   s += '*{margin:0;padding:0;box-sizing:border-box}';
   s += 'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0a0f1e url(https://cloudflare.panell.top/file/1752564522249_dayimg.jpg) center/cover no-repeat fixed;color:#e2e8f0;min-height:100vh;display:flex;justify-content:center;align-items:center;padding:20px}';
 
-  s += '.w{width:100%;max-width:500px;padding:36px;border-radius:20px;background:rgba(10,15,30,.75);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.06)}';
-  s += '.hd{text-align:center;margin-bottom:30px}';
-  s += '.lg{display:inline-flex;align-items:center;justify-content:center;width:52px;height:52px;border-radius:16px;background:linear-gradient(135deg,#3b82f6,#06b6d4);font-size:26px;margin-bottom:14px;box-shadow:0 8px 24px rgba(59,130,246,.25)}';
-  s += 'h1{font-size:23px;font-weight:700;color:#f1f5f9;margin-bottom:6px}';
-  s += '.sb{color:#64748b;font-size:14px;line-height:1.6}';
+  s += '.w{width:100%;max-width:500px;padding:36px;border-radius:20px;background:rgba(10,15,30,.85);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.08)}';
+  s += '.hd{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:24px}';
+  s += 'h1{font-size:23px;font-weight:700;color:#f1f5f9;margin:0}';
+  s += '.sb{color:#64748b;font-size:14px;line-height:1.6;margin:0}';
 
   s += '.bx{border:2px dashed #1e293b;border-radius:18px;padding:46px 26px;text-align:center;cursor:pointer;transition:all .22s ease;background:#080d1a}';
   s += '.bx:hover{border-color:#3b82f6;background:#0c1326}';
@@ -68,19 +69,59 @@ function pg(origin) {
   s += '#srw{display:none;margin-top:16px}';
   s += '#srw label{color:#10b981!important}';
 
-  s += '.ft{text-align:center;margin-top:30px;font-size:12px;color:#1e293b;line-height:1.8}';
+  /* 密码弹窗 */
+  s += '#pwdModal{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.80);display:flex;justify-content:center;align-items:center;z-index:9999;}';
+  s += '#pwdModal .pm{background:#0a0f1e;padding:32px;border-radius:16px;width:90%;max-width:360px;border:1px solid rgba(255,255,255,.10);}';
+  s += '#pwdModal h3{color:#e2e8f0;margin-bottom:16px;font-size:18px;}';
+  s += '#pwdInput{width:100%;padding:12px;border:1px solid #1e293b;border-radius:8px;background:#080d1a;color:#e2e8f0;font-size:14px;outline:none;font-family:inherit;box-sizing:border-box;}';
+  s += '#pwdInput:focus{border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,.15);}';
+  s += '#pwdSubmit{margin-top:16px;width:100%;padding:12px;background:linear-gradient(135deg,#3b82f6,#2563eb);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;}';
+  s += '#pwdSubmit:active{transform:scale(.97);}';
+  s += '#pwdError{color:#ef4444;font-size:13px;margin-top:10px;display:none;}';
+
+  /* 历史记录区域 */
+  s += '#histArea{display:none;margin-top:28px;}';
+  s += '#histArea h3{color:#94a3b8;font-size:14px;margin-bottom:12px;}';
+  s += '.histItem{background:#080d1a;border:1px solid #1e293b;border-radius:10px;padding:12px;margin-bottom:8px;}';
+  s += '.histName{color:#e2e8f0;font-size:13px;word-break:break-all;margin-bottom:6px;}';
+  s += '.histMeta{color:#475569;font-size:12px;margin-bottom:8px;}';
+  s += '.histBtns{display:flex;gap:6px;flex-wrap:wrap;}';
+  s += '.histBtns button{padding:6px 12px;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit;}';
+  s += '.histBtns .cpH{background:#1e293b;color:#94a3b8;}';
+  s += '.histBtns .cpH:hover{background:#334155;color:#e2e8f0;}';
+  s += '.histBtns .opH{background:rgba(59,130,246,.15);color:#3b82f6;}';
+  s += '.histBtns .opH:hover{background:rgba(59,130,246,.25);}';
+  s += '.histEmpty{color:#475569;font-size:13px;text-align:center;padding:20px;}';
+
+  s += '.ft{text-align:center;margin-top:30px;font-size:12px;color:#475569;line-height:1.8}';
 
   s += '</style></head><body>';
 
-  // ---- BODY ----
+  // ---- 密码弹窗 ----
+  s += '<div id="pwdModal">';
+  s += '<div class="pm">';
+  s += '<h3>🔒 请输入访问密码</h3>';
+  s += '<input type="password" id="pwdInput" placeholder="请输入密码">';
+  s += '<button id="pwdSubmit">确认</button>';
+  s += '<div id="pwdError"></div>';
+  s += '</div></div>';
+
+  // ---- 主界面 ----
   s += '<div class="w">';
 
+  // Header：logo + 标题 + 查看历史按钮
   s += '<div class="hd">';
-  s += '<img src="https://cloudflare.panell.top/file/1769138559457_photo_2024-04-05_13-54-41.jpg" alt="logo" style="width:52px;height:52px;border-radius:16px;box-shadow:0 8px 24px rgba(59,130,246,.25);margin-bottom:14px;display:inline-block;object-fit:cover">';
+  s += '<div style="display:flex;align-items:center;gap:12px;">';
+  s += '<img src="https://cloudflare.panell.top/file/1769138559457_photo_2024-04-05_13-54-41.jpg" alt="logo" style="width:52px;height:52px;border-radius:16px;box-shadow:0 8px 24px rgba(59,130,246,.25);display:inline-block;object-fit:cover">';
+  s += '<div>';
   s += '<h1>直链托管</h1>';
   s += '<p class="sb">永久免费 · 全球CDN加速</p>';
   s += '</div>';
+  s += '</div>';
+  s += '<button class="bt bo" id="histBtnHeader">📜 查看历史</button>';
+  s += '</div>';
 
+  // 上传区域
   s += '<div class="bx" id="bx">';
   s += '<div class="ic">☁️</div>';
   s += '<div class="tx"><b>点击选择文件</b> 或拖拽到此处<br>支持图片、视频、文档、m3u、json等任意格式</div>';
@@ -88,8 +129,10 @@ function pg(origin) {
   s += '<input type="file" id="fi">';
   s += '</div>';
 
+  // 上传进度
   s += '<div id="pg"><span id="pct">0%</span> 上传中...</div>';
 
+  // 上传结果
   s += '<div id="rs">';
   s += '<label>🔗 文件直链</label>';
   s += '<div class="rw">';
@@ -103,16 +146,22 @@ function pg(origin) {
   s += '<button class="bt bo" id="shBtn">生成短链</button>';
   s += '<button class="bt bs" id="agBtn">继续上传</button>';
   s += '</div>';
+  s += '</div>'; // rs
 
+  // 短链结果
   s += '<div id="srw">';
   s += '<label>🔗 短链接</label>';
   s += '<div class="rw">';
   s += '<input type="text" class="ri" id="siInp" readonly spellcheck="false">';
   s += '<button class="bt bp" id="csBtn">复制短链</button>';
   s += '</div>';
-  s += '</div>'; // srw
+  s += '</div>';
 
-  s += '</div>'; // rs
+  // 历史记录展示区域
+  s += '<div id="histArea">';
+  s += '<h3>📜 上传历史</h3>';
+  s += '<div id="histList"></div>';
+  s += '</div>';
 
   s += '<div class="ft">基于 Cloudflare Workers + R2 · 永久免费</div>';
   s += '</div>'; // w
@@ -131,7 +180,28 @@ function pg(origin) {
   s += 'var okmsg=document.getElementById("okmsg");';
   s += 'var srw=document.getElementById("srw");';
   s += 'var siInp=document.getElementById("siInp");';
+  s += 'var pwdModal=document.getElementById("pwdModal");';
+  s += 'var pwdInput=document.getElementById("pwdInput");';
+  s += 'var pwdSubmit=document.getElementById("pwdSubmit");';
+  s += 'var pwdError=document.getElementById("pwdError");';
+  s += 'var histArea=document.getElementById("histArea");';
+  s += 'var histList=document.getElementById("histList");';
+  s += 'var token=localStorage.getItem("fh_token")||"";';
 
+  // 密码逻辑
+  s += 'function showPwd(){pwdModal.style.display="flex";pwdInput.focus();}';
+  s += 'function hidePwd(){pwdModal.style.display="none";}';
+  s += 'if(!token){showPwd();}';
+  s += 'else{fetch(O+"/me",{headers:{"Authorization":token}}).then(function(r){return r.json();}).then(function(d){if(!d.success){localStorage.removeItem("fh_token");token="";showPwd();}}).catch(function(){showPwd();});}';
+
+  s += 'pwdSubmit.onclick=function(){';
+  s += 'var pwd=pwdInput.value;if(!pwd)return;';
+  s += 'fetch(O+"/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:pwd})})';
+  s += '.then(function(r){return r.json();})';
+  s += '.then(function(d){if(d.success){token=d.token;localStorage.setItem("fh_token",token);pwdError.style.display="none";pwdInput.value="";hidePwd();}else{pwdError.textContent=d.error||"密码错误";pwdError.style.display="block";}}).catch(function(){pwdError.textContent="网络错误";pwdError.style.display="block";});';
+  s += '};';
+
+  // 上传相关
   s += 'bx.onclick=function(){fi.click();};';
   s += 'fi.onchange=function(e){if(e.target.files&&e.target.files[0])goUp(e.target.files[0]);};';
 
@@ -160,6 +230,7 @@ function pg(origin) {
   s += 'xhr.onload=function(){try{var r=JSON.parse(xhr.responseText);if(r.error){alert(r.error);rst();return;}ck=r.key;urlInp.value=O+"/f/"+r.key;okmsg.textContent=f.name+" ("+fmtS(r.size)+")";okmsg.style.display="block";pg.style.display="none";rs.style.display="block";}catch(x){alert("响应错误");rst();}};';
   s += 'xhr.onerror=function(){alert("网络错误");rst();};';
   s += 'xhr.open("POST",O+"/upload");';
+  s += 'xhr.setRequestHeader("Authorization",token);';
   s += 'xhr.send(fd);}';
 
   s += 'function rst(){bx.style.display="";pg.style.display="none";rs.style.display="none";}';
@@ -172,6 +243,23 @@ function pg(origin) {
   s += 'document.getElementById("shBtn").onclick=function(){fetch(O+"/shorten?key="+ck).then(function(x){return x.json();}).then(function(d){if(d.error)throw d.error;siInp.value=d.shortUrl;srw.style.display="block";}).catch(function(e){alert(""+e);});};';
   s += 'document.getElementById("csBtn").onclick=function(){cT(siInp.value);alert("已复制!");};';
 
+  // 查看历史（header 按钮 + 加载函数）
+  s += 'function loadHistory(){';
+  s += 'fetch(O+"/history").then(function(r){return r.json();}).then(function(d){';
+  s += 'if(!d.success){alert(d.error||"获取历史失败");return;}';
+  s += 'histList.innerHTML="";';
+  s += 'if(d.history.length===0){histList.innerHTML="<div class=histEmpty>暂无上传记录</div>";histArea.style.display="block";return;}';
+  s += 'd.history.forEach(function(item){';
+  s += 'var div=document.createElement("div");div.className="histItem";';
+  s += 'var date=new Date(item.time);var dt=date.toLocaleString("zh-CN");';
+  s += 'div.innerHTML="<div class=histName>"+escH(item.name)+"</div><div class=histMeta>"+fmtS(item.size)+" · "+dt+"</div><div class=histBtns><button class=cpH>复制链接</button><button class=opH>打开</button></div>";';
+  s += 'div.querySelector(".cpH").onclick=function(){cT(O+"/f/"+item.key);};';
+  s += 'div.querySelector(".opH").onclick=function(){window.open(O+"/f/"+item.key,"_blank");};';
+  s += 'histList.appendChild(div);});';
+  s += 'histArea.style.display="block";});}';
+  s += 'document.getElementById("histBtnHeader").onclick=loadHistory;';
+
+  s += 'function escH(s){var d=document.createElement("div");d.textContent=s;return d.innerHTML;}';
   s += 'function cT(t){try{navigator.clipboard.writeText(t);}catch(ex){var ta=document.createElement("textarea");ta.value=t;ta.style.cssText="position:fixed;opacity:0";document.body.appendChild(ta);ta.select();document.execCommand("copy");ta.remove();}}';
 
   s += 'console.log("[FH] OK");';
@@ -193,18 +281,29 @@ function st(env, u) {
 
 async function up(req, env, u) {
   try {
+    if (!await checkAuth(req, env)) return j({ error: '未授权，请提供有效密码' }, 401);
     var ct = req.headers.get('content-type') || '';
-    if (!ct.includes('multipart/form-data')) return j({ error: '需要multipart' }, 400);
+    if (!ct.includes('multipart/form-data')) return j({ error: '需要 multipart/form-data' }, 400);
     var form = await req.formData();
     var file = form.get('file');
     if (!file) return j({ error: '无文件' }, 400);
     var key = gK(file.name);
     var buf = await file.arrayBuffer();
-    if (!env.FILE_BUCKET) return j({ error: '未绑定R2' }, 500);
+    if (!env.FILE_BUCKET) return j({ error: '未绑定 R2' }, 500);
     await env.FILE_BUCKET.put(key, buf, {
       httpMetadata: { contentType: file.type || 'application/octet-stream' },
       customMetadata: { originalName: file.name }
     });
+    // 写入上传历史
+    try {
+      var historyItem = { key: key, name: file.name, size: buf.byteLength, time: Date.now() };
+      var ho = await env.FILE_BUCKET.get('__history__');
+      var h = [];
+      if (ho && ho.body) { try { h = JSON.parse(await ho.text()); } catch(e) { h = []; } }
+      h.unshift(historyItem);
+      if (h.length > 100) h = h.slice(0, 100);
+      await env.FILE_BUCKET.put('__history__', JSON.stringify(h), { httpMetadata: { contentType: 'application/json' } });
+    } catch(e) { console.error('HISTORY:', e); }
     return j({ success: true, key: key, name: file.name, size: buf.byteLength, url: u.origin + '/f/' + key });
   } catch (err) {
     console.error('UP:', err);
@@ -231,7 +330,7 @@ async function fl(key, req, env) {
 async function sh(env, u) {
   try {
     var k = u.searchParams.get('key');
-    if (!k) return j({ error: '缺key' }, 400);
+    if (!k) return j({ error: '缺 key' }, 400);
     var code = rC(6);
     var lu = u.origin + '/f/' + k;
     var su = u.origin + '/s/' + code;
@@ -258,7 +357,7 @@ async function sr(code, env, u) {
     if (!item) return new Response('过期', { status: 404 });
     return Response.redirect(item.u || (u.origin + '/f/' + item.k), 302);
   } catch (err) {
-    return j({ error: '' + err.message }, 500 );
+    return j({ error: '' + err.message }, 500);
   }
 }
 
@@ -274,7 +373,51 @@ function rC(len) {
   for (var i = 0; i < len; i++) code += c[arr[i] % c.length];
   return code;
 }
-function j(d, st) { return Response.json(d, { status: st, headers: cr() }); }
+function j(d, st) { return Response.json(d, Object.assign({ status: st }, cr())); }
 function cr() {
   return { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET,POST,OPTIONS', 'access-control-allow-headers': '*' };
+}
+
+async function checkAuth(request, env) {
+  if (!env.ADMIN_PASSWORD) return true;
+  var token = request.headers.get('Authorization');
+  if (!token) return false;
+  try {
+    var encoder = new TextEncoder();
+    var data = encoder.encode(env.ADMIN_PASSWORD);
+    var hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    var hashArray = Array.from(new Uint8Array(hashBuffer));
+    var correctToken = hashArray.map(function(b) { return b.toString(16).padStart(2, '0'); }).join('');
+    return token === correctToken;
+  } catch(e) { return false; }
+}
+
+async function verify(request, env) {
+  try {
+    if (!env.ADMIN_PASSWORD) return j({ error: '未设置密码' }, 400);
+    var body = await request.json();
+    var pwd = body.password;
+    if (!pwd || pwd !== env.ADMIN_PASSWORD) return j({ error: '密码错误' }, 401);
+    var encoder = new TextEncoder();
+    var data = encoder.encode(env.ADMIN_PASSWORD);
+    var hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    var hashArray = Array.from(new Uint8Array(hashBuffer));
+    var token = hashArray.map(function(b) { return b.toString(16).padStart(2, '0'); }).join('');
+    return j({ success: true, token: token });
+  } catch(err) { return j({ error: '请求格式错误' }, 400); }
+}
+
+async function me(request, env) {
+  if (!await checkAuth(request, env)) return j({ error: '未授权' }, 401);
+  return j({ success: true, authenticated: true });
+}
+
+async function history(env) {
+  try {
+    if (!env.FILE_BUCKET) return j({ error: '无存储' }, 500);
+    var ho = await env.FILE_BUCKET.get('__history__');
+    var h = [];
+    if (ho && ho.body) { try { h = JSON.parse(await ho.text()); } catch(e) { h = []; } }
+    return j({ success: true, history: h });
+  } catch(err) { return j({ error: '' + err.message }, 500); }
 }
